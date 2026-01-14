@@ -1,0 +1,12 @@
+project:
+  name: insurance-claims-fraud-scoring-platform
+  version: "0.1.0"
+
+api:
+  host: "0.0.0.0"
+  port: 8000
+
+model:
+  default_threshold: 0.50
+  positive_label: "FRAUD_RISK"
+  negative_label: "LOW_RISK"
