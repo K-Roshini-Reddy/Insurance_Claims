@@ -1,0 +1,10 @@
+name: ML Pipeline (disabled)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  disabled:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "ML pipeline will be enabled in Step 4"
