@@ -1,29 +1,14 @@
-import threading
-import time
-
-import requests
-import uvicorn
+from fastapi.testclient import TestClient
+from backend.app.main import app
 
 
-def run_server():
-    # Run uvicorn server in the background (test-only)
-    uvicorn.run("backend.app.main:app", host="127.0.0.1", port=8000, log_level="warning")
+client = TestClient(app)
 
 
-def main():
-    # Start server in a daemon thread so the script can exit cleanly
-    t = threading.Thread(target=run_server, daemon=True)
-    t.start()
+def test_health_endpoint():
+    response = client.get("/health")
+    assert response.status_code == 200
 
-    # Wait briefly for server startup
-    time.sleep(1.5)
-
-    r = requests.get("http://127.0.0.1:8000/health", timeout=5)
-    assert r.status_code == 200, f"Expected 200, got {r.status_code}"
-    body = r.json()
-    assert body.get("status") == "ok", f"Unexpected body: {body}"
-    print("health_ok")
-
-
-if __name__ == "__main__":
-    main()
+    body = response.json()
+    assert body["status"] == "ok"
+    assert "version" in body
