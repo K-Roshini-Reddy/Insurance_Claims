@@ -36,3 +36,27 @@ def test_predict_fraud_response_shape_and_threshold():
         assert body["label"] == "FRAUD_RISK"
     else:
         assert body["label"] == "LOW_RISK"
+
+def test_predict_fraud_low_risk_case():
+    payload = {
+        "claim_amount": 500,
+        "num_prior_claims": 0,
+        "days_since_policy_start": 365
+    }
+
+    response = client.post("/predict/fraud", json=payload)
+
+    assert response.status_code == 200
+
+    body = response.json()
+
+    # Contract checks
+    assert "fraud_probability" in body
+    assert "label" in body
+    assert "threshold" in body
+
+    # Probability should be low
+    assert 0.0 <= body["fraud_probability"] < body["threshold"]
+
+    # Label must be LOW_RISK
+    assert body["label"] == "LOW_RISK"
