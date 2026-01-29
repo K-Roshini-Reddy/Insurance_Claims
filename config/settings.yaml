@@ -10,3 +10,4 @@ model:
   default_threshold: 0.50
   positive_label: "FRAUD_RISK"
   negative_label: "LOW_RISK"
+  required: false

@@ -1,10 +1,4 @@
-from fastapi.testclient import TestClient
-from backend.app.main import app
-
-client = TestClient(app)
-
-
-def test_predict_fraud_response_shape_and_threshold():
+def test_predict_fraud_response_shape_and_threshold(client):
     payload = {
         "claim_amount": 15000,
         "num_prior_claims": 4,
@@ -12,15 +6,17 @@ def test_predict_fraud_response_shape_and_threshold():
     }
 
     response = client.post("/predict/fraud", json=payload)
-
     assert response.status_code == 200
-
     body = response.json()
 
     # 1) Contract: exact required keys must exist
     assert "fraud_probability" in body
     assert "label" in body
     assert "threshold" in body
+
+    # Contract keys
+    assert "vin_status" in body
+    assert "features_used" in body
 
     # 2) Contract: types and ranges
     assert isinstance(body["fraud_probability"], (int, float))
@@ -37,7 +33,8 @@ def test_predict_fraud_response_shape_and_threshold():
     else:
         assert body["label"] == "LOW_RISK"
 
-def test_predict_fraud_low_risk_case():
+
+def test_predict_fraud_low_risk_case(client):
     payload = {
         "claim_amount": 500,
         "num_prior_claims": 0,
@@ -45,15 +42,15 @@ def test_predict_fraud_low_risk_case():
     }
 
     response = client.post("/predict/fraud", json=payload)
-
     assert response.status_code == 200
-
     body = response.json()
 
     # Contract checks
     assert "fraud_probability" in body
     assert "label" in body
     assert "threshold" in body
+    assert "vin_status" in body
+    assert "features_used" in body
 
     # Probability should be low
     assert 0.0 <= body["fraud_probability"] < body["threshold"]
