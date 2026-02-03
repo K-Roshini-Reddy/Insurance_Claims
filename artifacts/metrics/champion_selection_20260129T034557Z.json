@@ -1,0 +1,45 @@
+{
+  "min_precision": 0.3,
+  "champion": {
+    "model_key": "rf",
+    "auc": 0.9824999999999999,
+    "pr_auc": 0.9657411056682599,
+    "precision": 0.9392857142857143,
+    "recall": 0.8766666666666667,
+    "f1": 0.906896551724138,
+    "local_model_path": "artifacts/models/fraud_model_rf.joblib",
+    "mlflow_run_id": "aa172cf7f3b9498292698ff31e5eae3d"
+  },
+  "candidates": [
+    {
+      "model_key": "logreg",
+      "auc": 0.8786285714285714,
+      "pr_auc": 0.8250299745435432,
+      "precision": 0.7764705882352941,
+      "recall": 0.66,
+      "f1": 0.7135135135135136,
+      "local_model_path": "artifacts/models/fraud_model_logreg.joblib",
+      "mlflow_run_id": "038e1500e4a14488ba372faf81bf6462"
+    },
+    {
+      "model_key": "rf",
+      "auc": 0.9824999999999999,
+      "pr_auc": 0.9657411056682599,
+      "precision": 0.9392857142857143,
+      "recall": 0.8766666666666667,
+      "f1": 0.906896551724138,
+      "local_model_path": "artifacts/models/fraud_model_rf.joblib",
+      "mlflow_run_id": "aa172cf7f3b9498292698ff31e5eae3d"
+    },
+    {
+      "model_key": "gb",
+      "auc": 0.9286547619047618,
+      "pr_auc": 0.9048076981639875,
+      "precision": 0.9354838709677419,
+      "recall": 0.87,
+      "f1": 0.9015544041450777,
+      "local_model_path": "artifacts/models/fraud_model_gb.joblib",
+      "mlflow_run_id": "697a9509d87f411b9aa4226f7cfd69ce"
+    }
+  ]
+}

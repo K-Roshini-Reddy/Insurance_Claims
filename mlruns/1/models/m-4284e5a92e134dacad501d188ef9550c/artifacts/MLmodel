@@ -1,0 +1,22 @@
+artifact_path: file:///R:/Professional Projects/Insurance_Claims_Fraud_Scoring_Platform/mlruns/1/models/m-4284e5a92e134dacad501d188ef9550c/artifacts
+flavors:
+  python_function:
+    env:
+      conda: conda.yaml
+      virtualenv: python_env.yaml
+    loader_module: mlflow.sklearn
+    model_path: model.pkl
+    predict_fn: predict
+    python_version: 3.11.9
+  sklearn:
+    code: null
+    pickled_model: model.pkl
+    serialization_format: cloudpickle
+    sklearn_version: 1.5.1
+mlflow_version: 3.8.1
+model_id: m-4284e5a92e134dacad501d188ef9550c
+model_size_bytes: 3436
+model_uuid: m-4284e5a92e134dacad501d188ef9550c
+prompts: null
+run_id: 3ba2d4e84be842b0b40a748d868cd0ef
+utc_time_created: '2026-02-01 19:53:35.993442'

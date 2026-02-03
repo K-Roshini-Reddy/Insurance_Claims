@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-import json
 from datetime import datetime, timezone
-from typing import Any, Dict
-
+from pathlib import Path
+import json
+import os
 import joblib
+
 from sklearn.compose import ColumnTransformer
-from sklearn.metrics import roc_auc_score, precision_recall_fscore_support
 from sklearn.model_selection import train_test_split
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder
@@ -14,224 +14,174 @@ from sklearn.preprocessing import OneHotEncoder
 from ml.training.config import TrainConfig
 from ml.training.data import build_training_frame
 from ml.training.models import build_model
-from shared.features import FEATURE_SCHEMA_VERSION
+from ml.utils.logging_utils import setup_logger
+from ml.evaluation.evaluate import evaluate_binary_classifier
+from ml.evaluation.threshold import threshold_report
+from shared.features import FEATURE_SCHEMA_VERSION, CATEGORICAL_FEATURES, NUMERIC_FEATURES
 
 
-def _utc_now_compact() -> str:
+REGISTERED_MODEL_NAME = "fraud_scoring_model"
+
+
+def _ts() -> str:
     return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
 
 
 def train(cfg: TrainConfig) -> None:
-    # ---- Local outputs (Step 4.3 compatibility) ----
-    cfg.model_dir.mkdir(parents=True, exist_ok=True)
-    cfg.metrics_dir.mkdir(parents=True, exist_ok=True)
+    batch_id = _ts()
+    logger = setup_logger("training", log_file=f"artifacts/logs/training_{batch_id}.log")
 
-    # ---- MLflow (Step 4.4.2 + 4.4.3) ----
+    # ---- MLflow (Step 4.8) ----
     try:
         import mlflow
         import mlflow.sklearn
         from mlflow.tracking import MlflowClient
 
-        mlflow_enabled = True
-    except Exception:
-        mlflow_enabled = False
+        tracking_uri = os.getenv("MLFLOW_TRACKING_URI", "http://127.0.0.1:5000")
+        mlflow.set_tracking_uri(tracking_uri)
+        mlflow.set_experiment("fraud_model_comparison")
 
-    run_name = f"{cfg.model_key}_offline_{_utc_now_compact()}"
+        client, use_mlflow = MlflowClient(), True
+    except Exception as e:
+        client, use_mlflow = None, False
+        logger.warning("mlflow_disabled error=%s", str(e))
 
-    if mlflow_enabled:
-        # Force training + UI to use the SAME local tracking + registry DB
-        mlflow.set_tracking_uri("sqlite:///mlruns/mlflow.db")
-        mlflow.set_registry_uri("sqlite:///mlruns/mlflow.db")
+    df = build_training_frame(cfg)
+    y = df["label"].astype(int)
+    X = df.drop(columns=["label"])
 
-        mlflow.set_experiment("fraud_scoring")
-        mlflow.start_run(run_name=run_name)
+    if "feature_schema_version" not in X.columns:
+        raise RuntimeError("Missing feature_schema_version column in training frame.")
+    if not (X["feature_schema_version"] == FEATURE_SCHEMA_VERSION).all():
+        raise RuntimeError("Feature schema mismatch — regenerate features / update schema version.")
 
-        # Log config/params (what makes runs comparable)
-        mlflow.log_params(
-            {
-                "n_rows": cfg.n_rows,
-                "test_size": cfg.test_size,
-                "random_state": cfg.random_state,
-                "model_key": cfg.model_key,
-                "feature_schema_version": FEATURE_SCHEMA_VERSION,
-                "use_vin_snapshot": cfg.use_vin_snapshot,
-                "vin_snapshot_db_path": str(cfg.vin_snapshot_db_path.as_posix()),
-                "registered_model_name": getattr(cfg, "registered_model_name", "fraud_scoring_model"),
-                "promote_to_stage": getattr(cfg, "promote_to_stage", "Staging"),
-            }
-        )
+    pre = ColumnTransformer(
+        [
+            ("cat", OneHotEncoder(handle_unknown="ignore"), CATEGORICAL_FEATURES),
+            ("num", "passthrough", NUMERIC_FEATURES),
+        ],
+        remainder="drop",
+    )
 
-    try:
-        # ---- Build training data ----
-        df = build_training_frame(cfg)
-        y = df["label"].astype(int)
-        X = df.drop(columns=["label"])
+    X_tr, X_te, y_tr, y_te = train_test_split(
+        X, y, test_size=cfg.test_size, random_state=cfg.random_state, stratify=y
+    )
 
-        # Defensive schema check: ensures shared contract didn't drift
-        if not (X["feature_schema_version"] == FEATURE_SCHEMA_VERSION).all():
-            raise RuntimeError("Feature schema version mismatch inside training data.")
+    cfg.model_dir.mkdir(parents=True, exist_ok=True)
+    cfg.metrics_dir.mkdir(parents=True, exist_ok=True)
 
-        # Columns must match shared.features.build_features()
-        categorical_cols = [
-            "vin_make",
-            "vin_model",
-            "vin_body_class",
-            "vin_vehicle_type",
-            "vin_fuel_type",
-            "vin_manufacturer",
-            "vin_plant_country",
-            "vin_plant_state",
-            "feature_schema_version",
-        ]
-        numeric_cols = [
-            "claim_amount",
-            "num_prior_claims",
-            "days_since_policy_start",
-            "vin_model_year",
-            "vin_engine_cylinders",
-            "vin_displacement_l",
-        ]
+    seen, model_keys = set(), []
+    for k in (cfg.model_keys or []):
+        kk = (k or "").strip().lower()
+        if kk and kk not in seen:
+            model_keys.append(kk)
+            seen.add(kk)
+    if not model_keys:
+        raise RuntimeError("TrainConfig.model_keys is empty.")
 
-        pre = ColumnTransformer(
-            transformers=[
-                ("cat", OneHotEncoder(handle_unknown="ignore"), categorical_cols),
-                ("num", "passthrough", numeric_cols),
-            ],
-            remainder="drop",
-        )
+    logger.info("step4_6_start batch_id=%s models=%s", batch_id, ",".join(model_keys))
 
-        model = build_model(cfg.model_key, random_state=cfg.random_state)
-        pipe = Pipeline(steps=[("pre", pre), ("model", model)])
+    cands = []
+    for key in model_keys:
+        run_id = None
 
-        X_train, X_test, y_train, y_test = train_test_split(
-            X,
-            y,
-            test_size=cfg.test_size,
-            random_state=cfg.random_state,
-            stratify=y,
-        )
-
-        # ---- Train ----
-        pipe.fit(X_train, y_train)
-
-        # ---- Evaluate ----
-        proba = pipe.predict_proba(X_test)[:, 1]
-        auc = float(roc_auc_score(y_test, proba))
-
-        preds = (proba >= 0.5).astype(int)
-        precision, recall, f1, _ = precision_recall_fscore_support(
-            y_test,
-            preds,
-            average="binary",
-            zero_division=0,
-        )
-
-        run_id = _utc_now_compact()
-
-        # ---- Save artifacts locally (unchanged behavior) ----
-        model_path = cfg.model_dir / cfg.model_name
-        joblib.dump(pipe, model_path)
-
-        metadata: Dict[str, Any] = {
-            "run_id": run_id,
-            "trained_at_utc": run_id,
-            "model_type": f"sklearn_pipeline_{cfg.model_key}",
-            "feature_schema_version": FEATURE_SCHEMA_VERSION,
-            "input_features": categorical_cols + numeric_cols,
-            "artifact_path": str(model_path.as_posix()),
-            "train_params": {
-                "n_rows": cfg.n_rows,
-                "test_size": cfg.test_size,
-                "random_state": cfg.random_state,
-                "model_key": cfg.model_key,
-            },
-            "vin_snapshot": {
-                "enabled": cfg.use_vin_snapshot,
-                "db_path": str(cfg.vin_snapshot_db_path.as_posix()),
-            },
-        }
-        metadata_path = cfg.model_dir / cfg.metadata_name
-        metadata_path.write_text(json.dumps(metadata, indent=2), encoding="utf-8")
-
-        metrics = {
-            "run_id": run_id,
-            "auc": auc,
-            "precision": float(precision),
-            "recall": float(recall),
-            "f1": float(f1),
-            "n_train": int(len(X_train)),
-            "n_test": int(len(X_test)),
-        }
-        metrics_path = cfg.metrics_dir / f"metrics_{run_id}.json"
-        metrics_path.write_text(json.dumps(metrics, indent=2), encoding="utf-8")
-
-        # ---- MLflow logging (Step 4.4.2) ----
-        registered_version = None
-
-        if mlflow_enabled:
-            import mlflow
-
-            mlflow.log_metrics(
+        if use_mlflow:
+            mlflow.start_run(run_name=f"{key}_{batch_id}")
+            run_id = mlflow.active_run().info.run_id
+            mlflow.log_params(
                 {
-                    "auc": float(auc),
-                    "precision": float(precision),
-                    "recall": float(recall),
-                    "f1": float(f1),
+                    "batch_id": batch_id,
+                    "model_key": key,
+                    "fp_cost": cfg.fp_cost,
+                    "fn_cost": cfg.fn_cost,
+                    "random_state": cfg.random_state,
                 }
             )
 
-            # Log artifacts (files)
-            mlflow.log_artifact(str(model_path), artifact_path="artifacts")
-            mlflow.log_artifact(str(metadata_path), artifact_path="artifacts")
-            mlflow.log_artifact(str(metrics_path), artifact_path="artifacts")
+        try:
+            pipe = Pipeline([("pre", pre), ("model", build_model(key, cfg.random_state))])
+            pipe.fit(X_tr, y_tr)
+            proba = pipe.predict_proba(X_te)[:, 1]
 
-            # Log model in MLflow format
-            mlflow.sklearn.log_model(pipe, artifact_path="model")
+            m = evaluate_binary_classifier(y_true=y_te, y_proba=proba, threshold=0.5)
+            thr = threshold_report(y_true=y_te, y_proba=proba, fp_cost=cfg.fp_cost, fn_cost=cfg.fn_cost)
 
-            # ---- Step 4.4.3: Register + promote ----
-            model_name = getattr(cfg, "registered_model_name", "fraud_scoring_model")
-            stage = getattr(cfg, "promote_to_stage", "Staging")
+            model_path = cfg.model_dir / f"fraud_model_{key}.joblib"
+            joblib.dump(pipe, model_path)
 
-            active = mlflow.active_run()
-            if active is None:
-                raise RuntimeError("MLflow run is not active; cannot register model.")
+            cand = {"model_key": key, **m, **thr, "run_id": run_id, "model_path": str(model_path)}
+            cands.append(cand)
 
-            model_uri = f"runs:/{active.info.run_id}/model"
-
-            # Register model (creates new version)
-            registered = mlflow.register_model(model_uri=model_uri, name=model_name)
-            registered_version = registered.version
-
-            # Promote to stage (and archive existing versions in that stage)
-            client = MlflowClient()
-            client.transition_model_version_stage(
-                name=model_name,
-                version=registered_version,
-                stage=stage,
-                archive_existing_versions=True,
+            logger.info(
+                "model_done model=%s auc=%.4f pr_auc=%.4f best_thr=%.2f cost=%.2f",
+                key,
+                cand["auc"],
+                cand["pr_auc"],
+                cand["threshold"],
+                cand["total_cost"],
             )
 
-            print(f"✅ Registered model: {model_name} v{registered_version}")
-            print(f"✅ Promoted to {stage}: {model_name} v{registered_version}")
-            print(f"   Model URI: models:/{model_name}/{stage}")
+            if use_mlflow:
+                mlflow.log_metrics({k: float(v) for k, v in m.items()})
+                mlflow.log_metrics({"pr_auc": float(thr["pr_auc"]), "total_cost": float(thr["total_cost"])})
+                mlflow.log_params({"best_threshold": float(thr["threshold"])})
 
-        print("✅ Training complete")
-        print(f"   Model:   {model_path}")
-        print(f"   Metrics: {metrics_path}")
-        if mlflow_enabled:
-            active = mlflow.active_run()
-            if active is not None:
-                print(f"   MLflow run_id: {active.info.run_id}")
-                if registered_version is not None:
-                    model_name = getattr(cfg, "registered_model_name", "fraud_scoring_model")
-                    stage = getattr(cfg, "promote_to_stage", "Staging")
-                    print(f"   Load from Registry: models:/{model_name}/{stage}")
+                # Step 4.8: log + register
+                mlflow.sklearn.log_model(
+                    pipe,
+                    artifact_path="model",
+                    registered_model_name=REGISTERED_MODEL_NAME,
+                )
+        finally:
+            if use_mlflow:
+                mlflow.end_run()
 
-    finally:
-        if mlflow_enabled:
-            import mlflow
+    eligible = [c for c in cands if float(c["precision"]) >= float(cfg.min_precision)]
+    pool = eligible if eligible else cands
+    champion = max(pool, key=lambda x: float(x["auc"]))
 
-            mlflow.end_run()
+    sel_path = cfg.metrics_dir / f"champion_{batch_id}.json"
+    sel_path.write_text(
+        json.dumps({"batch_id": batch_id, "candidates": cands, "champion": champion}, indent=2),
+        encoding="utf-8",
+    )
+
+    thr_path = cfg.metrics_dir / f"threshold_{batch_id}.json"
+    thr_path.write_text(
+        json.dumps(
+            {
+                "batch_id": batch_id,
+                "model_key": champion["model_key"],
+                "best_threshold": champion["threshold"],
+                "fp_cost": cfg.fp_cost,
+                "fn_cost": cfg.fn_cost,
+                "confusion_matrix": {"tn": champion["tn"], "fp": champion["fp"], "fn": champion["fn"], "tp": champion["tp"]},
+                "pr_auc": champion["pr_auc"],
+                "total_cost": champion["total_cost"],
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+    champ_dst = cfg.model_dir / cfg.model_name
+    joblib.dump(joblib.load(Path(champion["model_path"])), champ_dst)
+
+    if use_mlflow and client and champion.get("run_id"):
+        try:
+            client.set_tag(champion["run_id"], "is_champion", "true")
+        except Exception as e:
+            logger.warning("set_tag_failed run_id=%s error=%s", champion["run_id"], str(e))
+
+    logger.info(
+        "champion model=%s auc=%.4f best_thr=%.2f cost=%.2f saved=%s",
+        champion["model_key"],
+        champion["auc"],
+        champion["threshold"],
+        champion["total_cost"],
+        str(champ_dst),
+    )
+    logger.info("saved threshold report=%s", str(thr_path))
 
 
 if __name__ == "__main__":

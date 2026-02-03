@@ -1,0 +1,33 @@
+{
+  "trained_at_utc": "20260129T034552Z",
+  "model_type": "sklearn_pipeline_gb",
+  "feature_schema_version": "v1",
+  "input_features": [
+    "vin_make",
+    "vin_model",
+    "vin_body_class",
+    "vin_vehicle_type",
+    "vin_fuel_type",
+    "vin_manufacturer",
+    "vin_plant_country",
+    "vin_plant_state",
+    "feature_schema_version",
+    "claim_amount",
+    "num_prior_claims",
+    "days_since_policy_start",
+    "vin_model_year",
+    "vin_engine_cylinders",
+    "vin_displacement_l"
+  ],
+  "artifact_path": "artifacts/models/fraud_model_gb.joblib",
+  "train_params": {
+    "n_rows": 5000,
+    "test_size": 0.2,
+    "random_state": 42,
+    "model_key": "gb"
+  },
+  "vin_snapshot": {
+    "enabled": true,
+    "db_path": "artifacts/stores/vin_cache.sqlite"
+  }
+}

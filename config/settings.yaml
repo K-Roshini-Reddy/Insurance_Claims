@@ -6,8 +6,29 @@ api:
   host: "0.0.0.0"
   port: 8000
 
+features:
+  vin_enrichment_enabled: true
+
 model:
+  # Step 4.8: default to MLflow registry serving
+  source: "mlflow" # "mlflow" or "local"
+  required: false
+
   default_threshold: 0.50
   positive_label: "FRAUD_RISK"
   negative_label: "LOW_RISK"
-  required: false
+
+  # MLflow registry config
+  mlflow_tracking_uri: "http://127.0.0.1:5000"
+  registry_name: "fraud_scoring_model"
+  stage: "Staging" # change to "Production" when ready
+
+ab_test:
+  enabled: true
+
+  # Shadow mode only in Step 4.9
+  mode: "shadow" # "shadow" or "split" (we do shadow now)
+
+  challenger:
+    registry_name: "fraud_scoring_model"
+    stage: "Staging"

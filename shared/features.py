@@ -61,3 +61,23 @@ def build_features(
         # VIN-derived features (from mapping)
         **_extract_vin_features(vin_record),
     }
+CATEGORICAL_FEATURES = [
+    "vin_make",
+    "vin_model",
+    "vin_body_class",
+    "vin_vehicle_type",
+    "vin_fuel_type",
+    "vin_manufacturer",
+    "vin_plant_country",
+    "vin_plant_state",
+    "feature_schema_version",
+]
+
+NUMERIC_FEATURES = [
+    "claim_amount",
+    "num_prior_claims",
+    "days_since_policy_start",
+    "vin_model_year",
+    "vin_engine_cylinders",
+    "vin_displacement_l",
+]

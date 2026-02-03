@@ -11,16 +11,36 @@ def load_settings() -> dict:
         settings = yaml.safe_load(f)
 
     # ---- ENV overrides (important for Docker/EKS later) ----
-    # This does NOT remove YAML; it only overrides if env vars exist.
-
     port = os.getenv("PORT")
     if port:
-        settings.setdefault("server", {})
-        settings["server"]["port"] = int(port)
+        settings.setdefault("api", {})
+        settings["api"]["port"] = int(port)
 
     vin_enabled = os.getenv("VIN_ENRICHMENT_ENABLED")
     if vin_enabled is not None:
         settings.setdefault("features", {})
         settings["features"]["vin_enrichment_enabled"] = vin_enabled.lower() in ("1", "true", "yes", "y")
+
+    # ---- Step 4.8: model source override ----
+    model_source = os.getenv("MODEL_SOURCE")
+    if model_source:
+        settings.setdefault("model", {})
+        settings["model"]["source"] = model_source.strip().lower()
+
+    # ---- Step 4.8: MLflow overrides ----
+    tracking_uri = os.getenv("MLFLOW_TRACKING_URI")
+    if tracking_uri:
+        settings.setdefault("model", {})
+        settings["model"]["mlflow_tracking_uri"] = tracking_uri
+
+    registry_name = os.getenv("MLFLOW_REGISTRY_NAME")
+    if registry_name:
+        settings.setdefault("model", {})
+        settings["model"]["registry_name"] = registry_name
+
+    stage = os.getenv("MLFLOW_MODEL_STAGE")
+    if stage:
+        settings.setdefault("model", {})
+        settings["model"]["stage"] = stage
 
     return settings
