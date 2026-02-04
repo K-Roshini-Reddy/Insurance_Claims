@@ -1,0 +1,19 @@
+# Python / venv
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Local runs & artifacts (we mount these at runtime)
+mlruns/
+artifacts/
+
+# Git / IDE
+.git/
+.vscode/
+.DS_Store
+
+# Large misc
+*.zip
+*.log

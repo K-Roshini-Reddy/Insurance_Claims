@@ -1,0 +1,47 @@
+services:
+  mlflow:
+    image: python:3.11-slim
+    container_name: mlflow
+    working_dir: /mlflow
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./mlruns:/mlflow/mlruns
+      - ./artifacts:/mlflow/artifacts
+    command:
+      - /bin/sh
+      - -lc
+      - |
+        pip install --no-cache-dir mlflow==2.14.3
+        mlflow server \
+          --host 0.0.0.0 \
+          --port 5000 \
+          --backend-store-uri sqlite:////mlflow/mlruns/mlflow.db \
+          --default-artifact-root /mlflow/artifacts
+
+  api:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: fraud-api
+    ports:
+      - "8001:8000"
+    environment:
+      - MLFLOW_TRACKING_URI=http://mlflow:5000
+    volumes:
+      - ./artifacts:/app/artifacts
+      - ./config:/app/config
+    depends_on:
+      - mlflow
+
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    container_name: fraud-frontend
+    ports:
+      - "8501:8501"
+    environment:
+      - API_BASE=http://api:8000
+    depends_on:
+      - api

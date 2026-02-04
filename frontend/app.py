@@ -1,9 +1,11 @@
+import os
 import time
 import requests
 import pandas as pd
 import streamlit as st
 
-API_BASE = st.sidebar.text_input("API Base URL", "http://127.0.0.1:8000")
+API_BASE_DEFAULT = os.getenv("API_BASE", "http://127.0.0.1:8000")
+API_BASE = st.sidebar.text_input("API Base URL", API_BASE_DEFAULT)
 
 st.title("Insurance Claims Fraud Scoring Demo")
 
@@ -24,7 +26,6 @@ with st.form("claim_form"):
     num_prior_claims = st.number_input("Number of Prior Claims", min_value=0, value=2, step=1)
     days_since_policy_start = st.number_input("Days Since Policy Start", min_value=0, value=120, step=1)
     vin = st.text_input("VIN (optional)", value="")
-
     submitted = st.form_submit_button("Score Fraud Risk")
 
 if "history" not in st.session_state:
