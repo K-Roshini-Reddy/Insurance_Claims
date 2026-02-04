@@ -5,6 +5,7 @@ from fastapi import Request
 
 from .services.vin_enrichment import enrich_vin
 from .ab_testing import run_shadow
+from .observability import log_jsonl_event  # Step 4.10
 from shared.features import build_features, VIN_KEY_MAP
 
 
@@ -22,6 +23,7 @@ def _vin_default_ratio(features: Dict[str, Any]) -> float:
 
 def _score(model: Any, features: Dict[str, Any]) -> float:
     import pandas as pd
+
     X = pd.DataFrame([features])
     prob = float(model.predict_proba(X)[0, 1])
     return float(min(max(prob, 0.0), 1.0))
@@ -92,9 +94,27 @@ def predict_one(request: Request, payload):
     flags["score_in_range"] = 0.0 <= prob <= 1.0
     label = pos_label if prob >= threshold else neg_label
 
-    # 5) shadow challenger (Step 4.9)
+    # 5) shadow challenger (Step 4.9) + observability (Step 4.10)
     ab = settings.get("ab_test", {})
-    if bool(ab.get("enabled", False)) and (ab.get("mode") or "shadow").lower() == "shadow" and model is not None:
+    shadow_event: Dict[str, Any] = {
+        "event": "shadow_inference",
+        "ab_enabled": bool(ab.get("enabled", False)),
+        "ab_mode": (ab.get("mode") or "shadow").lower(),
+        "ran": False,
+        "error": None,
+        "champion_prob": prob,
+        "challenger_prob": None,
+        "prob_delta": None,
+        "disagree": None,
+        "challenger_latency_ms": None,
+        "challenger_meta": getattr(request.app.state, "challenger_meta", {}),
+    }
+
+    if (
+        bool(ab.get("enabled", False))
+        and (ab.get("mode") or "shadow").lower() == "shadow"
+        and model is not None
+    ):
         shadow = run_shadow(
             enabled=True,
             challenger_model=getattr(request.app.state, "challenger", None),
@@ -105,18 +125,26 @@ def predict_one(request: Request, payload):
             pos_label=pos_label,
             neg_label=neg_label,
         )
+
         if shadow.enabled:
-            print(
+            shadow_event.update(
                 {
-                    "event": "shadow_inference",
                     "ran": shadow.ran,
                     "error": shadow.error,
+                    "champion_prob": shadow.champion_prob,
+                    "challenger_prob": shadow.challenger_prob,
                     "prob_delta": shadow.prob_delta,
                     "disagree": shadow.disagree,
                     "challenger_latency_ms": shadow.challenger_latency_ms,
                     "challenger_meta": shadow.challenger_meta,
                 }
             )
+
+    # Step 4.10: persist one JSONL event per request (does NOT fail the API request)
+    log_err = log_jsonl_event(settings=settings, event=shadow_event)
+    if log_err:
+        degraded = True
+        reasons.append(f"observability_log_failed: {log_err}")
 
     # response matches your FraudResponse schema
     return {

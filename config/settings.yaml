@@ -12,7 +12,7 @@ features:
 model:
   # Step 4.8: default to MLflow registry serving
   source: "mlflow" # "mlflow" or "local"
-  required: false
+  required: true
 
   default_threshold: 0.50
   positive_label: "FRAUD_RISK"
@@ -32,3 +32,7 @@ ab_test:
   challenger:
     registry_name: "fraud_scoring_model"
     stage: "Staging"
+
+observability:
+  enabled: true
+  shadow_log_path: "artifacts/observability/shadow_events.jsonl"
