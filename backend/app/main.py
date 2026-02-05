@@ -26,7 +26,9 @@ async def lifespan(app: FastAPI):
     app.state.challenger_meta = {}
     app.state.challenger_error = None
 
-    if ab_enabled and ab_mode == "shadow":
+    model_source = (settings.get("model", {}).get("source") or "mlflow").lower()
+
+    if ab_enabled and ab_mode == "shadow" and model_source == "mlflow":
         model_cfg = settings.get("model", {})
         tracking_uri = model_cfg.get("mlflow_tracking_uri", "http://127.0.0.1:5000")
         chall_cfg = ab.get("challenger", {}) or {}

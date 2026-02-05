@@ -11,7 +11,11 @@ features:
 
 model:
   # Step 4.8: default to MLflow registry serving
-  source: "mlflow" # "mlflow" or "local"
+  source: "local" # "mlflow" or "local"
+
+  # Local (CI / laptop) model path
+  local_path: "artifacts/models/fraud_model.joblib"
+  local_name: "fraud_model"
   required: true
 
   default_threshold: 0.50
@@ -24,7 +28,7 @@ model:
   stage: "Staging" # change to "Production" when ready
 
 ab_test:
-  enabled: true
+  enabled: false
 
   # Shadow mode only in Step 4.9
   mode: "shadow" # "shadow" or "split" (we do shadow now)
@@ -35,4 +39,4 @@ ab_test:
 
 observability:
   enabled: true
-  shadow_log_path: "artifacts/observability/shadow_events.jsonl"
+  shadow_log_path: "artifacts/observability/shadow.jsonl"

@@ -48,6 +48,7 @@ def model_info(request: Request):
     s = request.app.state.settings
     ab = s.get("ab_test", {})
     return {
+        "source": res.source,
         "champion": {
             "loaded": res.loaded,
             "model_uri": res.model_uri,

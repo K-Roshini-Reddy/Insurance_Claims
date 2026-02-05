@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Optional, Dict, Tuple
 
 
@@ -77,13 +78,79 @@ def load_registry_model(
         )
 
 
+def load_local_model(
+    model_cfg: Dict[str, Any]
+) -> Tuple[Optional[Any], Dict[str, Optional[str]], Optional[str]]:
+    """
+    Loads a local joblib model from the repo (CI + simple local runs).
+    Returns: (model, meta, error)
+    meta includes model_uri, model_name, stage.
+    """
+    try:
+        import joblib
+
+        # repo_root = .../backend/app -> repo root
+        repo_root = Path(__file__).resolve().parents[2]
+        local_path = model_cfg.get("local_path", "artifacts/models/fraud_model.joblib")
+        model_path = (repo_root / local_path).resolve()
+
+        model = joblib.load(model_path)
+
+        meta = {
+            "model_uri": str(model_path),
+            "model_name": model_cfg.get("local_name", "fraud_model"),
+            "stage": "local",
+            "version": None,
+            "run_id": None,
+        }
+        return model, meta, None
+    except Exception as e:
+        meta = {
+            "model_uri": model_cfg.get("local_path", "artifacts/models/fraud_model.joblib"),
+            "model_name": model_cfg.get("local_name", "fraud_model"),
+            "stage": "local",
+            "version": None,
+            "run_id": None,
+        }
+        return None, meta, str(e)
+
+
 def load_model(settings: Dict[str, Any]) -> ModelLoadResult:
     """
-    Step 4.8:
-    Loads CHAMPION model from MLflow Registry based on settings.yaml.
+    Loads the CHAMPION model based on settings.yaml.
+
+    - source: "local"  -> load joblib model from repo (CI-friendly)
+    - source: "mlflow" -> load from MLflow Model Registry
     """
     model_cfg = settings.get("model", {})
     source = (model_cfg.get("source") or "mlflow").lower()
+
+    if source == "local":
+        model, meta, err = load_local_model(model_cfg)
+        if err:
+            return ModelLoadResult(
+                source="local",
+                loaded=False,
+                model=None,
+                model_uri=meta["model_uri"],
+                model_name=meta["model_name"],
+                stage=meta["stage"],
+                version=meta["version"],
+                run_id=meta["run_id"],
+                error=err,
+            )
+
+        return ModelLoadResult(
+            source="local",
+            loaded=True,
+            model=model,
+            model_uri=meta["model_uri"],
+            model_name=meta["model_name"],
+            stage=meta["stage"],
+            version=meta["version"],
+            run_id=meta["run_id"],
+            error=None,
+        )
 
     if source != "mlflow":
         return ModelLoadResult(
@@ -95,7 +162,7 @@ def load_model(settings: Dict[str, Any]) -> ModelLoadResult:
             stage=None,
             version=None,
             run_id=None,
-            error="model.source is not 'mlflow' (set model.source: 'mlflow')",
+            error="model.source must be either 'mlflow' or 'local'",
         )
 
     tracking_uri = model_cfg.get("mlflow_tracking_uri", "http://127.0.0.1:5000")
