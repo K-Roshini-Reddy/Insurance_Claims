@@ -1,13 +1,30 @@
 from __future__ import annotations
 
+import time
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+
+from fastapi import FastAPI, Request
+from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
+from starlette.responses import Response
 
 from .config import load_settings
+from .metrics import HTTP_REQUESTS_TOTAL, HTTP_REQUEST_LATENCY_SECONDS
 from .model_loader import load_model, load_registry_model
 from .routes import router
 
 settings = load_settings()
+
+
+def _route_path_template(request: Request) -> str:
+    """
+    Prefer the FastAPI route template (e.g., "/predict/fraud") instead of raw URLs,
+    to avoid exploding metric cardinality.
+    """
+    route = request.scope.get("route")
+    if route and hasattr(route, "path"):
+        return str(route.path)
+    return str(request.url.path)
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -43,10 +60,37 @@ async def lifespan(app: FastAPI):
 
     yield
 
+
 app = FastAPI(
     title="Insurance Claims Fraud Scoring API",
     version=settings["project"]["version"],
     lifespan=lifespan,
 )
+
+
+@app.middleware("http")
+async def prometheus_middleware(request: Request, call_next):
+    start = time.perf_counter()
+    path = _route_path_template(request)
+    method = request.method
+
+    try:
+        response = await call_next(request)
+        status = str(response.status_code)
+        return response
+    except Exception:
+        # If an exception bubbles up, count it as 500
+        status = "500"
+        raise
+    finally:
+        elapsed = time.perf_counter() - start
+        HTTP_REQUESTS_TOTAL.labels(method=method, path=path, status=status).inc()
+        HTTP_REQUEST_LATENCY_SECONDS.labels(method=method, path=path).observe(elapsed)
+
+
+@app.get("/metrics")
+def metrics():
+    return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
+
 
 app.include_router(router)

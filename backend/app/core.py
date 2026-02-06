@@ -1,11 +1,20 @@
 from __future__ import annotations
 
+import time
 from typing import Any, Dict, List
+
 from fastapi import Request
 
-from .services.vin_enrichment import enrich_vin
 from .ab_testing import run_shadow
+from .metrics import (
+    DEGRADED_TOTAL,
+    FRAUD_SCORE_BUCKET,
+    INFERENCE_LATENCY_SECONDS,
+    VIN_ENRICH_LATENCY_SECONDS,
+    VIN_STATUS_TOTAL,
+)
 from .observability import log_jsonl_event  # Step 4.10
+from .services.vin_enrichment import enrich_vin
 from shared.features import build_features, VIN_KEY_MAP
 
 
@@ -30,6 +39,8 @@ def _score(model: Any, features: Dict[str, Any]) -> float:
 
 
 def predict_one(request: Request, payload):
+    t0 = time.perf_counter()
+
     settings = request.app.state.settings
 
     threshold = float(settings["model"]["default_threshold"])
@@ -48,8 +59,15 @@ def predict_one(request: Request, payload):
     vin_status = "SKIPPED"
 
     vin_enabled_and_provided = vin_enabled and bool(getattr(payload, "vin", None))
+    vin_ms = None
+
     if vin_enabled_and_provided:
-        vin_record, vin_status, _ms = enrich_vin(payload.vin)
+        vin_record, vin_status, vin_ms = enrich_vin(payload.vin)
+
+        # observe VIN metrics
+        VIN_STATUS_TOTAL.labels(status=vin_status).inc()
+        if isinstance(vin_ms, (int, float)) and vin_ms >= 0:
+            VIN_ENRICH_LATENCY_SECONDS.observe(float(vin_ms) / 1000.0)
 
         if vin_status == "ERROR":
             degraded = True
@@ -58,6 +76,7 @@ def predict_one(request: Request, payload):
         else:
             flags["vin_lookup_failed"] = False
     else:
+        VIN_STATUS_TOTAL.labels(status="SKIPPED").inc()
         flags["vin_missing_or_disabled"] = True
 
     # 2) build features
@@ -93,6 +112,13 @@ def predict_one(request: Request, payload):
 
     flags["score_in_range"] = 0.0 <= prob <= 1.0
     label = pos_label if prob >= threshold else neg_label
+
+    # record score distribution (drift proxy)
+    try:
+        FRAUD_SCORE_BUCKET.observe(prob)
+    except Exception:
+        # metrics must never break inference
+        pass
 
     # 5) shadow challenger (Step 4.9) + observability (Step 4.10)
     ab = settings.get("ab_test", {})
@@ -140,13 +166,25 @@ def predict_one(request: Request, payload):
                 }
             )
 
-    # Step 4.10: persist one JSONL event per request (does NOT fail the API request)
+    # persist one JSONL event per request (does NOT fail the API request)
     log_err = log_jsonl_event(settings=settings, event=shadow_event)
     if log_err:
         degraded = True
         reasons.append(f"observability_log_failed: {log_err}")
 
-    # response matches your FraudResponse schema
+    # step-level metric: degraded responses
+    if degraded:
+        try:
+            DEGRADED_TOTAL.inc()
+        except Exception:
+            pass
+
+    # observe inference end-to-end latency
+    try:
+        INFERENCE_LATENCY_SECONDS.observe(time.perf_counter() - t0)
+    except Exception:
+        pass
+
     return {
         "fraud_probability": prob,
         "label": label,

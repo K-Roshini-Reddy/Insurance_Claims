@@ -1,0 +1,54 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fraud-api
+  namespace: fraud
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: fraud-api
+  template:
+    metadata:
+      labels:
+        app: fraud-api
+    spec:
+      containers:
+        - name: api
+          image: fraud-api:local
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8000
+
+          # Liveness: is the process alive?
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+
+          # Readiness: can it serve traffic (model loaded)?
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 8000
+            initialDelaySeconds: 5
+            periodSeconds: 5
+
+          # Mount settings.yaml
+          volumeMounts:
+            - name: settings
+              mountPath: /app/config/settings.yaml
+              subPath: settings.yaml
+
+            # Writable artifacts path
+            - name: artifacts
+              mountPath: /app/artifacts
+
+      volumes:
+        - name: settings
+          configMap:
+            name: fraud-settings
+        - name: artifacts
+          emptyDir: {}

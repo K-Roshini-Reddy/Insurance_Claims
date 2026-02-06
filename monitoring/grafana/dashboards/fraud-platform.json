@@ -1,0 +1,72 @@
+{
+  "annotations": { "list": [] },
+  "editable": true,
+  "gnetId": null,
+  "graphTooltip": 0,
+  "id": null,
+  "iteration": 1,
+  "links": [],
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "Requests / sec (RPS)",
+      "targets": [
+        { "expr": "sum(rate(http_requests_total[1m]))", "refId": "A" }
+      ],
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 }
+    },
+    {
+      "type": "timeseries",
+      "title": "p95 HTTP Latency (seconds)",
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(http_request_latency_seconds_bucket[5m])))",
+          "refId": "A"
+        }
+      ],
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 }
+    },
+    {
+      "type": "timeseries",
+      "title": "5xx Error Rate",
+      "targets": [
+        {
+          "expr": "sum(rate(http_requests_total{status=~\"5..\"}[5m]))",
+          "refId": "A"
+        }
+      ],
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 }
+    },
+    {
+      "type": "timeseries",
+      "title": "Degraded Responses / sec",
+      "targets": [{ "expr": "rate(degraded_total[5m])", "refId": "A" }],
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 }
+    },
+    {
+      "type": "timeseries",
+      "title": "VIN Status Rate (OK/ERROR/SKIPPED)",
+      "targets": [
+        { "expr": "sum by (status) (rate(vin_status_total[5m]))", "refId": "A" }
+      ],
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 }
+    },
+    {
+      "type": "timeseries",
+      "title": "Fraud Score Distribution (rate by bucket)",
+      "targets": [
+        { "expr": "sum(rate(fraud_score_bucket[5m])) by (le)", "refId": "A" }
+      ],
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 }
+    }
+  ],
+  "refresh": "10s",
+  "schemaVersion": 39,
+  "style": "dark",
+  "tags": ["fraud", "ml", "observability"],
+  "templating": { "list": [] },
+  "time": { "from": "now-30m", "to": "now" },
+  "timezone": "browser",
+  "title": "Insurance Fraud Scoring - Observability",
+  "version": 1
+}

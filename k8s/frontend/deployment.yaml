@@ -1,0 +1,24 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fraud-frontend
+  namespace: fraud
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: fraud-frontend
+  template:
+    metadata:
+      labels:
+        app: fraud-frontend
+    spec:
+      containers:
+        - name: frontend
+          image: fraud-frontend:local
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8501
+          env:
+            - name: API_BASE
+              value: "http://fraud-api:8000"

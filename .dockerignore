@@ -1,19 +1,29 @@
 # Python / venv
+
 .venv/
-__pycache__/
-*.pyc
-*.pyo
-*.pyd
+**pycache**/
+_.pyc
+_.pyo
+\*.pyd
 
 # Local runs & artifacts (we mount these at runtime)
+
 mlruns/
 artifacts/
 
 # Git / IDE
+
 .git/
 .vscode/
 .DS_Store
 
 # Large misc
-*.zip
-*.log
+
+_.zip
+_.log
+
+# --- allow model artifacts for runtime images ---
+
+!artifacts/
+!artifacts/models/
+!artifacts/models/\*\*
